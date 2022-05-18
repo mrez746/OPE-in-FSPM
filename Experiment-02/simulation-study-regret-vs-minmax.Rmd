@@ -1,0 +1,113 @@
+---
+title: "Simulation study"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output: html_notebook
+params: 
+  k: 10
+  h: 1
+---
+
+***
+
+```{r, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, message=FALSE}
+library(tidyverse)
+library(CVXR)
+theme_set(theme_bw())
+source("../../worst_p_star.R")
+source("../../calculate_variance.R")
+```
+
+
+Parameters of the following example:
+
+- $k=$ `r params$k`
+- $h=$ `r params$h`
+
+```{r}
+k <- params$k
+h <- params$h
+postfix <- paste0("k", k, "_h", h)
+```
+
+```{r}
+df_sim <- readRDS(paste0("../../clean-data/", postfix, "_df_sim", ".rds"))
+df_regret <- readRDS(paste0("../../clean-data/", postfix, "_df_regret", ".rds")) # change
+df_minmax <- readRDS(paste0("../../clean-data/", postfix, "_df_minmax", ".rds")) # change
+```
+
+
+<br>
+
+## var under worst pstar of importance sampling
+
+```{r}
+df_pstar_minmax <- left_join(
+  df_regret %>% select(id_l, pi_l, id_t, pi_t, F_mat_regret),
+  df_minmax %>% select(id_l, id_t, pstar_f, var_f),
+  by = c("id_l", "id_t")
+)
+
+df_pstar_minmax <- df_pstar_minmax %>% 
+  mutate(
+    var_f_regret = pmap_dbl(
+      list(pi_l, pi_t, pstar_f, F_mat_regret),
+      function(pi_l, pi_t, pstar_f, F_mat_regret) {
+        calculate_variance(pi_l = pi_l, 
+                           pi_t = pi_t, 
+                           p_astar = pstar_f, 
+                           F_mat = F_mat_regret, 
+                           imp_sam = F)
+      }
+    )
+  )
+```
+
+
+<br>
+
+## var under worst pstar of f regret
+
+
+```{r}
+df_pstar_regret <- left_join(
+  df_regret %>% select(id_l, pi_l, id_t, pi_t, pstar_f_regret, var_f_regret),
+  df_minmax %>% select(id_l, id_t, F_mat),
+  by = c("id_l", "id_t")
+)
+
+
+df_pstar_regret <- df_pstar_regret %>% 
+  mutate(
+    var_f = pmap_dbl(
+      list(pi_l, pi_t, pstar_f_regret, F_mat),
+      function(pi_l, pi_t, pstar_f_regret, F_mat) {
+        calculate_variance(pi_l = pi_l, 
+                           pi_t = pi_t, 
+                           p_astar = pstar_f_regret, 
+                           F_mat = F_mat, 
+                           imp_sam = F)
+      }
+    )
+  )
+```
+
+
+```{r}
+# saveRDS(
+#   df_pstar_minmax,
+#   paste0("../../clean-data/", postfix, "_regret_minmax_pstar_minmax", ".rds")
+# )
+# 
+# saveRDS(
+#   df_pstar_regret,
+#   paste0("../../clean-data/", postfix, "_regret_minmax_pstar_regret", ".rds")
+# )
+```
+
+
+

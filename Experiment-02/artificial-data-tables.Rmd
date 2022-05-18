@@ -1,0 +1,192 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup, message=FALSE}
+library(tidyverse)
+source("../../table_for_latex.R")
+df_sim <- readRDS("../../clean-data/k10_h1_df_sim.rds")
+
+file_fixed_pstar <- dir("../../clean-data") %>% 
+  str_subset("k10_h1") %>% 
+  str_subset("fixed_astar")
+```
+
+```{r}
+out <- vector("list", length(file_fixed_pstar))
+
+for (i in 1:length(file_fixed_pstar)) {
+  
+  df <- readRDS(paste0(
+    "../../clean-data/", file_fixed_pstar[[i]]
+  ))
+  names(df) <- names(df) %>% str_replace("(?<=var)_.+", "")
+  
+  df <- df %>% 
+    mutate(
+      estimator = file_fixed_pstar[i] %>% 
+        str_replace("k10_h1_", "") %>% 
+        str_replace(".rds", "") %>% 
+        str_replace("_fixed_astar", "")
+    ) %>% 
+    select(id_l, id_t, id, var, estimator)
+  out[[i]] <- df
+}
+out <- bind_rows(out)
+```
+
+```{r}
+out %>% 
+  group_by(estimator, id) %>% 
+  summarise(
+    avg_var = mean(var) %>% scales::comma(accuracy = 0.01),
+    sd_var = sd(var) %>% scales::comma(accuracy = 0.01),
+    cell = paste0(avg_var," (", sd_var, ")"),
+    .groups = "drop"
+  ) %>% 
+  mutate(
+    estimator = factor(
+      estimator, 
+      levels = c("is", "regret", "minmax", 
+                 "mmregret_0-1", "mmregret_0-01", 
+                 "mmregret_0-001", "mmregret_1e-04")
+    )
+  ) %>% 
+  select(id, estimator, cell) %>% 
+  spread(key = "estimator", value = "cell") %>% 
+  table_for_latex()
+```
+
+
+```{r}
+file_comp <- dir("../../clean-data") %>% 
+  str_subset("k10_h1") %>% 
+  str_subset("^(?!.*fixed_astar)") %>% 
+  str_subset("^(?!.*sim)") %>% 
+  str_subset("pstar")
+```
+
+```{r}
+out2 <- vector("list", length(file_comp))
+
+for (i in 1:length(file_comp)) {
+  
+  pstar <- file_comp[i] %>% 
+    str_extract("[:alpha:]+_*\\d*e*-*\\d*.rds") %>% 
+    str_replace("1e-04", "") %>% 
+    str_replace_all("\\d", "") %>% 
+    str_replace(".rds", "") %>% 
+    str_replace("_", "") %>% 
+    str_replace("-", "")
+  
+  df <- readRDS(paste0(
+    "../../clean-data/", file_comp[[i]]
+  ))
+  rho <- NULL
+  
+  if (str_detect(file_comp[i], "mmregret")) {
+    
+    rho <- file_comp[i] %>% 
+      str_extract("\\d*e*-*\\d+.rds") %>% 
+      str_replace(".rds", "") %>% 
+      str_replace("_", "") %>% 
+      str_replace("-", "_")
+    
+    names(df) <- names(df) %>% 
+      str_replace("mmregret", paste0("mmregret_", rho))
+  }
+  
+  if (pstar == "mmregret") {
+    pstar <- paste0(pstar, "_", rho)
+  }
+  
+  df <- df %>% 
+    select(id_l, id_t, contains("var")) %>% 
+    mutate(pstar_dist = pstar)
+  # names(df) <- names(df) %>% str_replace("(?<=var)_.+", "")
+  out2[[i]] <- df
+}
+```
+
+```{r}
+methods <- map_chr(out2, ~.$pstar_dist[1]) %>% unique()
+
+out3 <- vector("list", length(methods))
+
+for (i in 1:length(methods)) {
+  
+  df <- crossing(id_l = 0:10,
+                 id_t = 0:10) %>% 
+    mutate(pstar_dist = methods[i])
+  
+  for (j in 1:length(out2)) {
+    
+    if (out2[[j]]$pstar_dist[1] != methods[i]) next()
+    
+    df <- df %>%
+      left_join(out2[[j]], 
+                by = c("id_l", "id_t", "pstar_dist"))
+  }
+  out3[[i]] <- df
+}
+
+out3 <- map(
+  out3, 
+  ~.x %>% select(-contains(".x.x"), -contains(".y"))
+)
+
+for (i in 1:length(out3)) {
+  
+  names(out3[[i]]) <- names(out3[[i]]) %>% 
+    str_replace(".x", "")
+  indx <- duplicated(names(out3[[i]]))
+  out3[[i]] <- out3[[i]][, !indx]
+}
+```
+
+```{r}
+bind_rows(out3) %>% names()
+```
+
+
+```{r}
+bind_rows(out3) %>% 
+  group_by(pstar_dist) %>% 
+  summarise(
+    avg_var_f = mean(var_f) %>% scales::comma(accuracy = 0.01),
+    sd_var_f = sd(var_f) %>% scales::comma(accuracy = 0.01),
+    cell_f = paste0(avg_var_f," (", sd_var_f, ")"),
+    avg_var_is = mean(var_is) %>% scales::comma(accuracy = 0.01),
+    sd_var_is = sd(var_is) %>% scales::comma(accuracy = 0.01),
+    cell_is = paste0(avg_var_is," (", sd_var_is, ")"),
+    avg_var_f_mmregret_0_001 = mean(var_f_mmregret_0_001) %>% scales::comma(accuracy = 0.01),
+    sd_var_f_mmregret_0_001 = sd(var_f_mmregret_0_001) %>% scales::comma(accuracy = 0.01),
+    cell_f_mmregret_0_001 = paste0(avg_var_f_mmregret_0_001," (", sd_var_f_mmregret_0_001, ")"),
+    avg_var_f_mmregret_0_01 = mean(var_f_mmregret_0_01) %>% scales::comma(accuracy = 0.01),
+    sd_var_f_mmregret_0_01 = sd(var_f_mmregret_0_01) %>% scales::comma(accuracy = 0.01),
+    cell_f_mmregret_0_01 = paste0(avg_var_f_mmregret_0_01," (", sd_var_f_mmregret_0_01, ")"),
+    avg_var_f_mmregret_0_1 = mean(var_f_mmregret_0_1) %>% scales::comma(accuracy = 0.01),
+    sd_var_f_mmregret_0_1 = sd(var_f_mmregret_0_1) %>% scales::comma(accuracy = 0.01),
+    cell_f_mmregret_0_1 = paste0(avg_var_f_mmregret_0_1," (", sd_var_f_mmregret_0_1, ")"),
+    avg_var_f_mmregret_1e_04 = mean(var_f_mmregret_1e_04) %>% scales::comma(accuracy = 0.01),
+    sd_var_f_mmregret_1e_04 = sd(var_f_mmregret_1e_04) %>% scales::comma(accuracy = 0.01),
+    cell_f_mmregret_1e_04 = paste0(avg_var_f_mmregret_1e_04," (", sd_var_f_mmregret_1e_04, ")"),
+    avg_var_f_regret = mean(var_f_regret) %>% scales::comma(accuracy = 0.01),
+    sd_var_f_regret = sd(var_f_regret) %>% scales::comma(accuracy = 0.01),
+    cell_f_regret = paste0(avg_var_f_regret," (", sd_var_f_regret, ")"),
+    .groups = "drop"
+  ) %>%
+  filter(pstar_dist %in% c("is", "regret", "minmax", "mmregret_0_001")) %>% 
+  mutate(
+    pstar_dist = factor(
+      pstar_dist, 
+      levels = c("is", "regret", "minmax", 
+                 "mmregret_0_001")
+    )
+  ) %>% 
+  arrange(pstar_dist) %>% 
+  select(pstar_dist, cell_is, cell_f_regret, cell_f, cell_f_mmregret_0_001) %>% 
+  table_for_latex()
+```
+

@@ -1,0 +1,135 @@
+---
+title: "Simulation study"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output: html_notebook
+params: 
+  k: 10
+  h: 1
+  rho: 0.0001
+---
+
+***
+
+```{r, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, message=FALSE}
+library(tidyverse)
+library(CVXR)
+theme_set(theme_bw())
+source("../../worst_p_star.R")
+source("../../calculate_variance.R")
+```
+
+
+Parameters of the following example:
+
+- $k=$ `r params$k`
+- $h=$ `r params$h`
+- $\rho=$ `r params$rho`
+
+```{r}
+k <- params$k
+h <- params$h
+rho <- params$rho
+postfix <- paste0("k", k, "_h", h)
+```
+
+```{r}
+df_sim <- readRDS(paste0(
+  "../../clean-data/", postfix, "_df_sim", ".rds"
+))
+
+df_mmregret <- readRDS(paste0(
+  "../../clean-data/", postfix, "_df_mmregret_", 
+  str_replace(rho, "\\.", "-"), ".rds"
+)) # change
+
+df_is <- readRDS(paste0(
+  "../../clean-data/", postfix, "_df_is", ".rds"
+)) # change
+```
+
+```{r}
+df_mmregret <- df_mmregret %>% 
+  rename(
+    F_mat_mmregret = F_mat,
+    pstar_f_mmregret = pstar_f,
+    var_f_mmregret = var_f
+  )
+```
+
+<br>
+
+## var under worst pstar of importance sampling
+
+```{r}
+df_pstar_is <- left_join(
+  df_mmregret %>% select(id_l, pi_l, id_t, pi_t, F_mat_mmregret),
+  df_is %>% select(id_l, id_t, pstar_is, var_is),
+  by = c("id_l", "id_t")
+)
+
+df_pstar_is <- df_pstar_is %>% 
+  mutate(
+    var_f_mmregret = pmap_dbl(
+      list(pi_l, pi_t, pstar_is, F_mat_mmregret),
+      function(pi_l, pi_t, pstar_is, F_mat_mmregret) {
+        calculate_variance(pi_l = pi_l, 
+                           pi_t = pi_t, 
+                           p_astar = pstar_is, 
+                           F_mat = F_mat_mmregret, 
+                           imp_sam = F)
+      }
+    )
+  )
+```
+
+
+<br>
+
+## var under worst pstar of f mmregret
+
+
+```{r}
+df_pstar_f <- df_mmregret %>% 
+  select(id_l, pi_l, id_t, pi_t, pstar_f_mmregret, var_f_mmregret)
+
+df_pstar_f <- df_pstar_f %>% 
+  mutate(
+    var_is = pmap_dbl(
+      list(pi_l, pi_t, pstar_f_mmregret),
+      function(pi_l, pi_t, pstar_f_mmregret) {
+        calculate_variance(pi_l = pi_l, 
+                           pi_t = pi_t, 
+                           p_astar = pstar_f_mmregret, 
+                           imp_sam = T)
+      }
+    )
+  )
+```
+
+
+
+```{r}
+saveRDS(
+  df_pstar_is,
+  paste0(
+    "../../clean-data/", postfix, "_mmregret_is_pstar_is_",
+    str_replace(rho, "\\.", "-"), ".rds"
+  )
+)
+
+saveRDS(
+  df_pstar_f,
+  paste0(
+    "../../clean-data/", postfix, "_mmregret_is_pstar_mmregret_", 
+    str_replace(rho, "\\.", "-"), ".rds"
+  )
+)
+```
+
+
+

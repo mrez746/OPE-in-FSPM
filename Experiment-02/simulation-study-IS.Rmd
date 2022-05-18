@@ -1,0 +1,146 @@
+---
+title: "Simulation study: importance sampling"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output: html_notebook
+params: 
+  k: 10
+  h: 1
+---
+
+***
+
+```{r, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, message=FALSE}
+library(tidyverse)
+library(CVXR)
+theme_set(theme_bw())
+source("../../worst_p_star.R")
+source("../../calculate_variance.R")
+```
+
+
+Parameters of the following example:
+
+- $k=$ `r params$k`
+- $h=$ `r params$h`
+
+```{r}
+k <- params$k
+h <- params$h
+postfix <- paste0("k", k, "_h", h)
+df_sim <- readRDS(paste0("../../clean-data/", postfix, "_df_sim", ".rds"))
+```
+
+```{r}
+var_under_distribution_p <- function(df, p_vec) {
+  # input:
+  #     df (dataframe) w/ columns:
+  #       $id_l
+  #       $pi_l
+  #       $id_t
+  #       $pi_t
+  #       $F_mat
+  #     p_vec (dbl vec) distribution of a star
+  # output:
+  #     (dataframe) w/ columns of df plus:
+  #       $var_is
+  #       $var_f
+  df <- df %>% 
+    mutate(
+      pstar = list(p_vec)
+    )
+  
+  out <- df %>% 
+    mutate(
+      var_is = pmap_dbl(
+        list(pi_l, pi_t, pstar),
+        function(pi_l, pi_t, pstar) {
+          calculate_variance(pi_l = pi_l, 
+                             pi_t = pi_t, 
+                             p_astar = pstar, 
+                             imp_sam = T)
+        }
+      )
+    )
+  return(out)
+}
+```
+
+<br>
+
+## Worst-case variance of f
+
+```{r}
+df_worst <- df_sim
+```
+
+```{r}
+df_worst <- df_worst %>% 
+  mutate(
+    pstar_is = map2(
+      pi_l, 
+      pi_t,
+      ~worst_p_star(pi_l = .x, pi_t = .y, imp_sam = T)
+    ),
+    var_is = pmap_dbl(
+      list(pi_l, pi_t, pstar_is),
+      function(pi_l, pi_t, pstar_is) {
+        calculate_variance(pi_l = pi_l, 
+                           pi_t = pi_t, 
+                           p_astar = pstar_is, 
+                           imp_sam = T)
+      } 
+    )
+  )
+```
+
+
+<br>
+
+## var under uniform distribution
+
+
+```{r}
+df <- df_worst %>% 
+  select(id_l, pi_l, id_t, pi_t)
+
+df_astar_dist <- df_sim %>% 
+  filter(id_t == 0) %>% 
+  select(id_l, pi_l) %>% 
+  rename(
+    id = id_l, 
+    p = pi_l
+  )
+
+df_fixed_astar <- vector("list", nrow(df_astar_dist))
+
+for (i in 1:nrow(df_astar_dist)) {
+  p_vec <- df_astar_dist$p[[i]]
+  
+  df_fixed_astar[[i]] <- var_under_distribution_p(
+    df = df, 
+    p_vec = p_vec
+  ) %>% 
+    mutate(id = df_astar_dist$id[[i]])
+}
+
+df_fixed_astar <- bind_rows(df_fixed_astar)
+```
+
+
+```{r}
+# saveRDS(
+#   df_worst,
+#   paste0("../../clean-data/", postfix, "_df_is", ".rds")
+# )
+# 
+# saveRDS(
+#   df_fixed_astar,
+#   paste0("../../clean-data/", postfix, "_is_fixed_astar", ".rds")
+# )
+```
+

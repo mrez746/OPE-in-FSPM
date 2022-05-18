@@ -1,0 +1,186 @@
+---
+title: "R Notebook"
+output: html_notebook
+params: 
+  subsample_n: 50 # 71237, 7000, 1000, 100, 50
+---
+
+```{r setup, message=FALSE, include=FALSE}
+library(tidyverse)
+theme_set(theme_bw())
+```
+
+```{r}
+df <- readRDS("boot-rslts.rds")
+df <- filter(df, subsample_n == params$subsample_n)
+```
+
+```{r}
+params$subsample_n
+```
+
+```{r}
+n_runs <- df$seed %>% unique %>% length()
+n_runs
+```
+
+```{r}
+df <- df %>% 
+  mutate(
+    e_mmregret = (est_mmregret - pi_t_val),
+    e_mm = (est_mm - pi_t_val),
+    e_simple = (est_simple - pi_t_val),
+    e_CDF_reg = (est_CDF_reg - pi_t_val),
+    e_CDF_IS = (est_CDF_IS - pi_t_val),
+  )
+```
+
+```{r, fig.width=8, fig.height=5}
+df %>% 
+  ggplot(aes(e_mmregret)) + 
+  geom_histogram() + 
+  # coord_cartesian(xlim = c(-0.1, 0.1)) +
+  facet_grid(w2 ~ p_astar_estimator)
+```
+
+```{r, fig.width=8, fig.height=5}
+df %>% 
+  ggplot(aes(e_mm)) + 
+  geom_histogram() + 
+  # coord_cartesian(xlim = c(-0.1, 0.1)) +
+  facet_grid(w2 ~ p_astar_estimator)
+```
+
+```{r, fig.width=8, fig.height=5}
+df %>% 
+  ggplot(aes(e_CDF_reg)) + 
+  geom_histogram() + 
+  # coord_cartesian(xlim = c(-0.1, 0.1)) +
+  facet_grid(w2 ~ p_astar_estimator)
+```
+
+```{r, fig.width=8, fig.height=5}
+df %>% 
+  ggplot(aes(e_CDF_IS)) + 
+  geom_histogram() + 
+  # coord_cartesian(xlim = c(-0.1, 0.1)) +
+  facet_grid(w2 ~ p_astar_estimator)
+```
+
+```{r, fig.width=8, fig.height=5}
+df %>% 
+  ggplot(aes(e_simple)) + 
+  geom_histogram() + 
+  # coord_cartesian(xlim = c(-1, 1)) +
+  facet_grid(w2 ~ p_astar_estimator)
+```
+
+```{r}
+avg_df <- df %>% 
+  group_by(w2, p_astar_estimator) %>% 
+  summarise(
+    avg_e_mmregret = mean(e_mmregret),
+    sd_mmregret = sd(e_mmregret),
+    avg_e_mm = mean(e_mm),
+    sd_mm = sd(e_mm),
+    avg_e_simple = mean(e_simple),
+    sd_simple = sd(e_simple),
+    avg_e_CDF_reg = mean(e_CDF_reg),
+    sd_CDF_reg = sd(e_CDF_reg),
+    avg_e_CDF_IS = mean(e_CDF_IS),
+    sd_CDF_IS = sd(e_CDF_IS),
+    .groups = "drop"
+  ) %>% 
+  mutate(
+    UCI95_mmregret = avg_e_mmregret + qnorm(1 - 0.05/2) * sd_mmregret / sqrt(n_runs),
+    LCI95_mmregret = avg_e_mmregret - qnorm(1 - 0.05/2) * sd_mmregret / sqrt(n_runs),
+    UCI95_mm       = avg_e_mm + qnorm(1 - 0.05/2) * sd_mm / sqrt(n_runs),
+    LCI95_mm       = avg_e_mm - qnorm(1 - 0.05/2) * sd_mm / sqrt(n_runs),
+    UCI95_simple   = avg_e_simple + qnorm(1 - 0.05/2) * sd_simple / sqrt(n_runs),
+    LCI95_simple   = avg_e_simple - qnorm(1 - 0.05/2) * sd_simple / sqrt(n_runs),
+    UCI95_CDF_reg  = avg_e_CDF_reg + qnorm(1 - 0.05/2) * sd_CDF_reg / sqrt(n_runs),
+    LCI95_CDF_reg  = avg_e_CDF_reg - qnorm(1 - 0.05/2) * sd_CDF_reg / sqrt(n_runs),
+    UCI95_CDF_IS   = avg_e_CDF_IS + qnorm(1 - 0.05/2) * sd_CDF_IS / sqrt(n_runs),
+    LCI95_CDF_IS   = avg_e_CDF_IS - qnorm(1 - 0.05/2) * sd_CDF_IS / sqrt(n_runs),
+  )
+```
+
+```{r}
+df1 <- avg_df %>% 
+  select(
+    w2, p_astar_estimator, contains("avg_e")
+  ) %>% 
+  gather(key = "method", value = "avg_e", 3:7) %>% 
+  mutate(
+    method = str_replace(method, "avg_e_", "")
+  )
+
+df2 <- avg_df %>% 
+  select(
+    w2, p_astar_estimator, contains("UCI")
+  ) %>% 
+  gather(key = "method", value = "UCI", 3:7) %>% 
+  mutate(
+    method = str_replace(method, "UCI95_", "")
+  )
+
+df3 <- avg_df %>% 
+  select(
+    w2, p_astar_estimator, contains("LCI")
+  ) %>% 
+  gather(key = "method", value = "LCI", 3:7) %>% 
+  mutate(
+    method = str_replace(method, "LCI95_", "")
+  )
+
+df_avg2 <- df1 %>% 
+  left_join(
+    df2, 
+    by = c("w2", "p_astar_estimator", "method")
+  ) %>% 
+  left_join(
+    df3, 
+    by = c("w2", "p_astar_estimator", "method")
+  )
+```
+
+```{r, fig.width=12, fig.height=8}
+df_avg2 %>% 
+  ggplot(aes(method, avg_e)) + 
+  geom_hline(yintercept = 0, size = 1, color = gray(0.8)) +
+  geom_point(shape = 124, size = 10, color = "dark red") + 
+  geom_errorbar(
+    aes(ymin = LCI, ymax = UCI), 
+    width = 0.2
+  ) + 
+  facet_grid(p_astar_estimator ~ w2, scales = "free") + 
+  coord_flip() +
+  labs(x = "", y = "") + 
+  theme(
+    text = element_text(size = 30), 
+    axis.text.x = element_text(angle = 45, hjust = 1), 
+  )
+```
+
+```{r, fig.width=12, fig.height=8}
+df_avg2 %>% 
+  filter(method != "simple") %>% 
+  filter(method != "CDF_IS") %>% 
+  filter(method != "CDF_reg") %>% 
+  ggplot(aes(method, avg_e)) + 
+  geom_hline(yintercept = 0, size = 1, color = gray(0.8)) +
+  geom_point(shape = 124, size = 10, color = "dark red") + 
+  geom_errorbar(
+    aes(ymin = LCI, ymax = UCI), 
+    width = 0.2
+  ) + 
+  facet_grid(p_astar_estimator ~ w2, scales = "free") + 
+  coord_flip() +
+  labs(x = "", y = "") + 
+  theme(
+    text = element_text(size = 30), 
+    axis.text.x = element_text(angle = 45, hjust = 1), 
+  )
+```
+
+
